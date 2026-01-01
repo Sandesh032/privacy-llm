@@ -44,19 +44,19 @@ def evaluate_routes(pii_risk, energy):
     routes["local"] = {
         "privacy_leakage": 0.1 + 0.1 * pii_risk,
         "energy_cost": energy["local_energy"],
-        "task_quality": 0.65 + random.uniform(-0.05, 0.05)
+        "task_quality": min(0.65 + random.uniform(-0.05, 0.05), 1.0)
     }
 
     routes["hybrid"] = {
         "privacy_leakage": 0.25 + 0.25 * pii_risk,
         "energy_cost": (energy["local_energy"] + energy["tx_energy"]) / 1.8,
-        "task_quality": 0.88 + random.uniform(-0.03, 0.03)
+        "task_quality": min(0.88 + random.uniform(-0.03, 0.03), 1.0)
     }
 
     routes["cloud"] = {
         "privacy_leakage": 0.6 + 0.4 * pii_risk,
         "energy_cost": energy["tx_energy"],
-        "task_quality": 0.97 + random.uniform(-0.05, 0.05)
+        "task_quality": min(0.95 + random.uniform(-0.03, 0.03), 1.0)  # Fixed: capped at 1.0
     }
 
     return routes

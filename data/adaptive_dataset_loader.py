@@ -66,13 +66,14 @@ class AdaptiveRoutingDataset(Dataset):
             routes['cloud']['task_quality']
         ], dtype=torch.float32)
         
-        # Device features
+        # Device features + privacy risk
         device = item['device']
         device_features = torch.tensor([
             device['battery_level'],
             device['cpu_load'],
             device['ram_mb'] / 8192.0,  # Normalize to [0, 1]
-            {'wifi': 0.0, '4g': 0.5, '5g': 1.0}[device['network']]
+            {'wifi': 0.0, '4g': 0.5, '5g': 1.0}[device['network']],
+            item['privacy_risk']  # Add privacy risk as direct feature
         ], dtype=torch.float32)
         
         # Optimal route as label

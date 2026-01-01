@@ -23,7 +23,7 @@ class AdaptiveRoutingModel(nn.Module):
     
     def __init__(self, 
                  pretrained_model: str = "bert-base-uncased",
-                 device_feature_dim: int = 4,
+                 device_feature_dim: int = 5,  # Added privacy_risk feature
                  hidden_dim: int = 256,
                  dropout: float = 0.3):
         super().__init__()
@@ -33,16 +33,28 @@ class AdaptiveRoutingModel(nn.Module):
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model)
         self.text_encoder = AutoModel.from_pretrained(pretrained_model)
         
+        # Freeze BERT base layers, only fine-tune last 2 layers
+        for param in self.text_encoder.parameters():
+            param.requires_grad = False
+        # Unfreeze last 2 encoder layers for task-specific adaptation
+        for layer in self.text_encoder.encoder.layer[-2:]:
+            for param in layer.parameters():
+                param.requires_grad = True
+        
         text_embed_dim = self.text_encoder.config.hidden_size  # 768 for BERT
         
-        # Device feature network
+        # Device feature network - deeper for privacy+device context
         self.device_network = nn.Sequential(
-            nn.Linear(device_feature_dim, 64),
+            nn.Linear(device_feature_dim, 128),
             nn.ReLU(),
+            nn.BatchNorm1d(128),
             nn.Dropout(dropout),
-            nn.Linear(64, 128),
+            nn.Linear(128, 256),
             nn.ReLU(),
-            nn.Dropout(dropout)
+            nn.BatchNorm1d(256),
+            nn.Dropout(dropout),
+            nn.Linear(256, 128),
+            nn.ReLU()
         )
         
         # Fusion layer
@@ -72,7 +84,7 @@ class AdaptiveRoutingModel(nn.Module):
         
         Args:
             queries: List of query strings
-            device_features: [batch_size, 4] device state
+            device_features: [batch_size, 5] device state + privacy_risk
             
         Returns:
             route_logits: [batch_size, 3] logits for each route

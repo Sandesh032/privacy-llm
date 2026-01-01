@@ -1,6 +1,6 @@
 """
-Training script for adaptive routing model
-Trains neural network to predict optimal route (local/hybrid/cloud)
+IMPROVED Training script for adaptive routing model
+Includes: privacy features, frozen BERT, mixup, early stopping, label smoothing
 """
 
 import torch
@@ -11,6 +11,7 @@ from tqdm import tqdm
 import json
 from pathlib import Path
 import sys
+import numpy as np
 
 # Add paths
 sys.path.append('data')
@@ -18,27 +19,31 @@ sys.path.append('models')
 
 from data.adaptive_dataset_loader import AdaptiveRoutingDataset, collate_fn
 from models.routing_model import AdaptiveRoutingModel, count_parameters
+from models.augmentation import mixup_data, mixup_criterion
 
 
-# Configuration
+# Enhanced Configuration
 CONFIG = {
     'dataset_path': 'data/adaptive_dataset.jsonl',
     'batch_size': 32,
-    'learning_rate': 5e-5,  # Increased LR for better convergence
-    'epochs': 25,  # More epochs with early stopping
+    'learning_rate': 5e-5,
+    'epochs': 30,
     'train_split': 0.7,
     'val_split': 0.15,
     'test_split': 0.15,
     'device': 'cuda' if torch.cuda.is_available() else 'cpu',
     'save_dir': 'checkpoints',
     'log_interval': 100,
-    'class_weights': [1.0, 1.5, 1.2],  # Rebalanced - boost cloud slightly
-    'patience': 5,  # Early stopping patience
+    'class_weights': [1.0, 1.5, 1.2],
+    'patience': 7,
+    'mixup_alpha': 0.2,
+    'label_smoothing': 0.1,
+    'warmup_epochs': 3,
 }
 
 
-def train_epoch(model, dataloader, criterion, optimizer, device, epoch):
-    """Train for one epoch"""
+def train_epoch(model, dataloader, criterion, optimizer, device, epoch, use_mixup=True):
+    """Train for one epoch with optional mixup"""
     model.train()
     total_loss = 0
     correct = 0
@@ -50,9 +55,19 @@ def train_epoch(model, dataloader, criterion, optimizer, device, epoch):
         device_features = batch['device_features'].to(device)
         labels = batch['optimal_routes'].to(device)
 
-        # Forward pass
-        logits = model(queries, device_features)
-        loss = criterion(logits, labels)
+        # Apply mixup augmentation (only on device features, not text)
+        if use_mixup and epoch > CONFIG['warmup_epochs']:
+            mixed_features, labels_a, labels_b, lam = mixup_data(
+                device_features, labels, alpha=CONFIG['mixup_alpha']
+            )
+            
+            # Forward pass with mixed features
+            logits = model(queries, mixed_features)
+            loss = mixup_criterion(criterion, logits, labels_a, labels_b, lam)
+        else:
+            # Standard forward pass
+            logits = model(queries, device_features)
+            loss = criterion(logits, labels)
 
         # Backward pass
         optimizer.zero_grad()
@@ -60,7 +75,7 @@ def train_epoch(model, dataloader, criterion, optimizer, device, epoch):
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
 
-        # Metrics
+        # Metrics (use original labels for accuracy)
         total_loss += loss.item()
         predictions = torch.argmax(logits, dim=-1)
         correct += (predictions == labels).sum().item()
@@ -121,7 +136,7 @@ def evaluate(model, dataloader, criterion, device):
 
 def main():
     print("="*80)
-    print("Adaptive Routing Model Training")
+    print("IMPROVED Adaptive Routing Model Training")
     print("="*80)
 
     # Set device
@@ -173,16 +188,27 @@ def main():
     )
 
     # Initialize model
-    print("\nInitializing model...")
+    print("\nInitializing improved model...")
+    print("  - Privacy risk as direct feature")
+    print("  - Frozen BERT base (fine-tune last 2 layers)")
+    print("  - Deeper device network")
+    print("  - Mixup augmentation")
+    print("  - Label smoothing")
+    print("  - Early stopping")
+    
     model = AdaptiveRoutingModel().to(device)
 
     total_params, trainable_params = count_parameters(model)
-    print(f"  Total parameters: {total_params:,}")
+    print(f"\n  Total parameters: {total_params:,}")
     print(f"  Trainable parameters: {trainable_params:,}")
+    print(f"  Frozen parameters: {total_params - trainable_params:,}")
 
-    # Class weights for handling imbalance + label smoothing
+    # Loss with label smoothing
     class_weights = torch.tensor(CONFIG['class_weights']).to(device)
-    criterion = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=0.1)
+    criterion = nn.CrossEntropyLoss(
+        weight=class_weights, 
+        label_smoothing=CONFIG['label_smoothing']
+    )
     
     optimizer = optim.AdamW(
         model.parameters(),
@@ -190,11 +216,14 @@ def main():
         weight_decay=0.01
     )
 
-    # Learning rate scheduler
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=CONFIG['epochs']
-    )
+    # Learning rate scheduler with warmup
+    def lr_lambda(epoch):
+        if epoch < CONFIG['warmup_epochs']:
+            return (epoch + 1) / CONFIG['warmup_epochs']
+        return 0.5 * (1 + np.cos(np.pi * (epoch - CONFIG['warmup_epochs']) / 
+                                   (CONFIG['epochs'] - CONFIG['warmup_epochs'])))
+    
+    scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
     # Create save directory
     save_dir = Path(CONFIG['save_dir'])
@@ -254,8 +283,9 @@ def main():
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'val_accuracy': val_metrics['accuracy'],
-                'config': CONFIG
-            }, save_dir / 'best_model.pt')
+                'config': CONFIG,
+                'per_route_acc': val_metrics['per_route_accuracy']
+            }, save_dir / 'best_model_improved.pt')
             print(f"  ✓ New best model saved! (Val Acc: {best_val_acc:.4f})")
         else:
             patience_counter += 1
@@ -272,7 +302,7 @@ def main():
     print("="*80)
 
     # Load best model
-    checkpoint = torch.load(save_dir / 'best_model.pt')
+    checkpoint = torch.load(save_dir / 'best_model_improved.pt')
     model.load_state_dict(checkpoint['model_state_dict'])
 
     test_metrics = evaluate(model, test_loader, criterion, device)
@@ -284,12 +314,17 @@ def main():
     print(f"    Hybrid: {test_metrics['per_route_accuracy']['hybrid']:.4f}")
     print(f"    Cloud:  {test_metrics['per_route_accuracy']['cloud']:.4f}")
 
+    # Compare with baseline
+    print(f"\n  Improvement over baseline (74.12%):")
+    improvement = (test_metrics['accuracy'] - 0.7412) * 100
+    print(f"  {improvement:+.2f} percentage points")
+
     # Save training history
-    with open(save_dir / 'training_history.json', 'w') as f:
+    with open(save_dir / 'training_history_improved.json', 'w') as f:
         json.dump(history, f, indent=2)
 
     print(f"\n✓ Training complete!")
-    print(f"  Best model: {save_dir / 'best_model.pt'}")
+    print(f"  Best model: {save_dir / 'best_model_improved.pt'}")
     print(f"  Best validation accuracy: {best_val_acc:.4f}")
     print(f"  Test accuracy: {test_metrics['accuracy']:.4f}")
     print("="*80)
@@ -297,3 +332,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
