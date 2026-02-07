@@ -16,24 +16,24 @@ import sys
 sys.path.append('data')
 sys.path.append('models')
 
-from data.adaptive_dataset_loader import AdaptiveRoutingDataset, collate_fn
+from data.adaptive_dataset import AdaptiveRoutingDataset, collate_fn
 from models.routing_model import AdaptiveRoutingModel, count_parameters
 
 
 # Configuration
 CONFIG = {
-    'dataset_path': 'data/adaptive_dataset.jsonl',
+    'dataset_path': 'data/local_dataset.jsonl',
     'batch_size': 32,
     'learning_rate': 5e-5,  # Increased LR for better convergence
-    'epochs': 25,  # More epochs with early stopping
+    'epochs': 15,  # More epochs with early stopping
     'train_split': 0.7,
     'val_split': 0.15,
     'test_split': 0.15,
     'device': 'cuda' if torch.cuda.is_available() else 'cpu',
     'save_dir': 'checkpoints',
     'log_interval': 100,
-    'class_weights': [1.0, 1.5, 1.2],  # Rebalanced - boost cloud slightly
-    'patience': 5,  # Early stopping patience
+    'class_weights': [1.0, 1.0, 1.0],
+    'patience': 5,
 }
 
 
@@ -271,8 +271,8 @@ def main():
     print("Final Evaluation on Test Set")
     print("="*80)
 
-    # Load best model
-    checkpoint = torch.load(save_dir / 'best_model.pt')
+    # Load best model (weights_only=False for PyTorch 2.6 compatibility)
+    checkpoint = torch.load(save_dir / 'best_model.pt', weights_only=False)
     model.load_state_dict(checkpoint['model_state_dict'])
 
     test_metrics = evaluate(model, test_loader, criterion, device)
