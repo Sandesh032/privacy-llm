@@ -1,0 +1,30 @@
+================================================================================
+DETAILED CLASSIFICATION REPORT — 9K Held-Out Test
+================================================================================
+
+ Route Precision Recall F1-Score  Support Accuracy
+ Local    0.9943 0.9950   0.9947     3000   0.9950
+Hybrid    0.9920 0.9883   0.9901     3000   0.9883
+ Cloud    0.9940 0.9970   0.9955     3000   0.9970
+
+Overall Accuracy: 0.9934 (99.34%)
+Macro Avg Precision: 0.9934
+Macro Avg Recall: 0.9934
+Macro Avg F1-Score: 0.9934
+Weighted Avg F1-Score: 0.9934
+
+================================================================================
+COMPARISON WITH BASELINES
+================================================================================
+
+        System Privacy Risk Energy Cost Task Quality
+  Always-Local       0.1606      0.4600       0.7012
+  Always-Cloud       0.7123      0.3620       0.9598
+     Our Model       0.3863      0.4001       0.8512
+Optimal Oracle       0.3862      0.4003       0.8512
+
+IMPROVEMENTS vs Always-Cloud Baseline:
+  Privacy Risk: +45.77% (lower is better)
+  Energy Cost: -10.52% (lower is better)
+
+================================================================================
